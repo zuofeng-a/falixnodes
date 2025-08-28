@@ -35,35 +35,57 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-gradle-
 
-      - name: Build with Gradle (优化版本)
+      - name: Build with Gradle
         run: |
           chmod +x gradlew 
           ./gradlew clean 
           ./gradlew applyPatches
-          # 尝试构建普通服务器 JAR 而不是 paperclip
-          ./gradlew :paper-server:build
+          # 先尝试构建普通服务器，如果失败则使用 mojmap
+          ./gradlew :paper-server:build || ./gradlew createMojmapPaperclipJar
 
-      - name: Prepare server.jar
+      - name: Find and prepare correct JAR
         id: prepare_jar
         run: |
-          # 查找重新混淆后的服务器 JAR（较小）
-          JAR_PATH=$(find . -path "*/build/libs/*" -name "paper-*.jar" ! -name "*sources*" ! -name "*javadoc*" ! -name "*mojmap*" ! -name "*paperclip*" | head -n 1)
+          echo "=== 查找正确的 JAR 文件 ==="
           
+          # 1. 首先查找完整的服务器 JAR（应该在 50-60MB 左右）
+          JAR_PATH=$(find . -path "*/build/libs/*" -name "paper-*.jar" ! -name "*sources*" ! -name "*javadoc*" -size +40M | head -n 1)
+          
+          # 2. 如果没找到，查找 paperclip JAR（90MB 左右）
           if [ -z "$JAR_PATH" ]; then
-            echo "普通 JAR 未找到，尝试其他路径..."
-            JAR_PATH=$(find . -name "paper-*.jar" ! -name "*sources*" ! -name "*javadoc*" ! -name "*mojmap*" | head -n 1)
+            echo "普通服务器 JAR 未找到，尝试查找 paperclip..."
+            JAR_PATH=$(find . -name "paperclip-mojmap-*.jar" -size +80M | head -n 1)
+          fi
+          
+          # 3. 如果还是没找到，查找任何较大的 JAR 文件
+          if [ -z "$JAR_PATH" ]; then
+            echo "查找任何较大的 JAR 文件..."
+            JAR_PATH=$(find . -name "*.jar" -size +40M | head -n 1)
+          fi
+          
+          # 4. 最后尝试任何 JAR 文件
+          if [ -z "$JAR_PATH" ]; then
+            echo "查找任何 JAR 文件..."
+            JAR_PATH=$(find . -name "*.jar" | head -n 1)
           fi
           
           if [ -z "$JAR_PATH" ]; then
-            echo "No JAR file found! Listing all jars:"
-            find . -name "*.jar" -type f
+            echo "No JAR file found! Listing all files:"
+            find . -name "*.jar" -exec ls -lh {} \;
             exit 1
           fi
           
-          echo "Found JAR: $JAR_PATH"
-          echo "Size: $(ls -lh "$JAR_PATH" | awk '{print $5}')"
+          echo "找到 JAR: $JAR_PATH"
+          echo "大小: $(ls -lh "$JAR_PATH" | awk '{print $5}')"
           cp "$JAR_PATH" ./server.jar
+          echo "最终文件大小: $(ls -lh ./server.jar | awk '{print $5}')"
           echo "JAR_SIZE=$(ls -lh ./server.jar | awk '{print $5}')" >> $GITHUB_OUTPUT
+
+      - name: Debug - List all JAR files
+        run: |
+          echo "=== 所有 JAR 文件列表 ==="
+          find . -name "*.jar" -exec ls -lh {} \; | sort -k 5 -h
+          echo "========================="
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
@@ -72,100 +94,55 @@ jobs:
           path: server.jar
           retention-days: 30
 
-  # 如果普通构建失败，回退到 mojmap 构建
-  build-fallback:
-    needs: build
-    if: failure()
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0 
-
-      - name: Set up JDK 22
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: '22'
-
-      - name: Build with Gradle (回退方案)
-        run: |
-          chmod +x gradlew 
-          ./gradlew clean 
-          ./gradlew applyPatches
-          ./gradlew createMojmapPaperclipJar
-
-      - name: Prepare server.jar from fallback
-        id: prepare_fallback_jar
-        run: |
-          JAR_PATH=$(find . -name "paperclip-mojmap-*.jar" | head -n 1)
-          if [ -z "$JAR_PATH" ]; then
-            JAR_PATH=$(find paper-server/build/libs -name "*.jar" ! -name "*sources*" ! -name "*javadoc*" | head -n 1)
-          fi
-          cp "$JAR_PATH" ./server.jar
-          echo "JAR_SIZE=$(ls -lh ./server.jar | awk '{print $5}')" >> $GITHUB_OUTPUT
-
-      - name: Upload Fallback Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: server-jar-fallback
-          path: server.jar
-          retention-days: 30
-
   release:
-    needs: [build, build-fallback]
+    needs: build
     runs-on: ubuntu-latest
     permissions:
       contents: write 
     steps:
-      - name: Download Artifact (优先使用主构建)
+      - name: Download Artifact
         uses: actions/download-artifact@v4
         with:
           name: server-jar
-          # 如果主构建不存在，会继续尝试下载回退版本
 
-      - name: Download Fallback Artifact (如果需要)
-        if: failure()
-        uses: actions/download-artifact@v4
-        with:
-          name: server-jar-fallback
-
-      - name: Ensure server.jar exists
+      - name: Verify JAR file
         run: |
-          if [ ! -f "server.jar" ]; then
-            # 尝试查找任何 jar 文件
-            FOUND_JAR=$(find . -name "*.jar" | head -n 1)
-            if [ -n "$FOUND_JAR" ]; then
-              cp "$FOUND_JAR" ./server.jar
-            else
-              echo "No server.jar found!"
-              exit 1
-            fi
+          echo "下载的文件信息:"
+          ls -lh
+          echo "server.jar 大小: $(ls -lh server.jar | awk '{print $5}')"
+          
+          # 检查文件大小是否合理
+          JAR_SIZE=$(stat -f%z server.jar 2>/dev/null || stat -c%s server.jar)
+          if [ "$JAR_SIZE" -lt 40000000 ]; then  # 小于 40MB
+            echo "警告: JAR 文件可能太小 ($JAR_SIZE bytes)，可能不是完整的服务器 JAR"
+            echo "尝试重新构建..."
+            exit 1
           fi
-          echo "Final server.jar size: $(ls -lh server.jar | awk '{print $5}')"
 
-      - name: Create Release with server.jar
+      - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
           files: server.jar
-          tag_name: "build-${{ github.run_number }}"
-          name: "Server ${{ github.run_number }}"
+          tag_name: "release-${{ github.run_number }}"
+          name: "Server Build ${{ github.run_number }}"
           body: |
             ## Server Build #${{ github.run_number }}
             
-            **Build Info:**
-            - Commit: ${{ github.sha }}
-            - Branch: ${{ github.ref }}
-            - File Size: $(ls -lh server.jar | awk '{print $5}')
+            **构建信息:**
+            - 提交: ${{ github.sha }}
+            - 分支: ${{ github.ref_name }}
+            - 构建时间: ${{ github.run_attempt }}
+            - 文件大小: $(ls -lh server.jar | awk '{print $5}')
             
-            **Installation:**
-            1. Download `server.jar`
-            2. Place in server directory
-            3. Run: `java -Xmx2G -jar server.jar nogui`
+            **安装说明:**
+            1. 下载 `server.jar` 文件
+            2. 放入服务器目录
+            3. 运行: `java -Xmx2G -jar server.jar nogui`
             
-            **Requirements:**
-            - Java 21 or higher
+            **系统要求:**
+            - Java 21 或更高版本
+            
+            **注意:** 这是自动构建版本
           draft: false
           prerelease: true
         env:
