@@ -1,4 +1,4 @@
-name: Build server.jar
+name: Build paper
 
 on:
   push:
@@ -9,142 +9,164 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 
 
-    - name: Configure Git for GitHub Actions
-      run: |
-        git config --global user.email "action@github.com"
-        git config --global user.name "GitHub Action"
+      - name: Configure Git
+        run: |
+          git config --global user.email "action@github.com"
+          git config --global user.name "GitHub Action"
 
-    - name: Set up JDK 22
-      uses: actions/setup-java@v4
-      with:
-        distribution: 'temurin'
-        java-version: '22'
+      - name: Set up JDK 22
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '22'
 
-    - name: Cache Gradle dependencies
-      uses: actions/cache@v3
-      with:
-        path: |
-          ~/.gradle/caches
-          ~/.gradle/wrapper
-        key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
-        restore-keys: |
-          ${{ runner.os }}-gradle-
+      - name: Cache Gradle dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
 
-    - name: Build with Gradle (Mojmap paperclip)
-      run: |
-        chmod +x gradlew
-        ./gradlew clean
-        ./gradlew applyPatches
-        ./gradlew createMojmapPaperclipJar
+      - name: Build with Gradle (优化版本)
+        run: |
+          chmod +x gradlew 
+          ./gradlew clean 
+          ./gradlew applyPatches
+          # 尝试构建普通服务器 JAR 而不是 paperclip
+          ./gradlew :paper-server:build
 
-    - name: Prepare JAR
-      id: prepare_jar
-      run: |
-        # 查找 paperclip JAR 文件
-        JAR_PATH=$(find . -name "paperclip-mojmap-*.jar" | head -n 1)
-        
-        if [ -z "$JAR_PATH" ]; then
-          echo "Trying alternative paperclip paths..."
-          JAR_PATH=$(find . -path "*/build/libs/*" -name "paperclip*.jar" | head -n 1)
-        fi
-        
-        if [ -z "$JAR_PATH" ]; then
-          echo "Trying server JAR paths..."
-          JAR_PATH=$(find . -path "*/build/libs/*" -name "paper-*.jar" ! -name "*sources*" ! -name "*javadoc*" | head -n 1)
-        fi
-        
-        if [ -z "$JAR_PATH" ]; then
-          echo "No JAR file found! Listing build directories..."
-          find . -name "build" -type d | while read dir; do
-            echo "Checking $dir/libs/"
-            ls -la "$dir/libs/" 2>/dev/null || true
-          done
-          exit 1
-        fi
-        
-        echo "Found JAR at: $JAR_PATH"
-        echo "JAR size: $(ls -lh "$JAR_PATH" | awk '{print $5}')"
-        cp "$JAR_PATH" ./server.jar  # 直接命名为 server.jar
-        echo "JAR_SIZE=$(ls -lh ./server.jar | awk '{print $5}')" >> $GITHUB_OUTPUT
-        echo "JAR_NAME=server.jar" >> $GITHUB_OUTPUT
-        echo "JAR_PATH=$JAR_PATH" >> $GITHUB_OUTPUT
+      - name: Prepare server.jar
+        id: prepare_jar
+        run: |
+          # 查找重新混淆后的服务器 JAR（较小）
+          JAR_PATH=$(find . -path "*/build/libs/*" -name "paper-*.jar" ! -name "*sources*" ! -name "*javadoc*" ! -name "*mojmap*" ! -name "*paperclip*" | head -n 1)
+          
+          if [ -z "$JAR_PATH" ]; then
+            echo "普通 JAR 未找到，尝试其他路径..."
+            JAR_PATH=$(find . -name "paper-*.jar" ! -name "*sources*" ! -name "*javadoc*" ! -name "*mojmap*" | head -n 1)
+          fi
+          
+          if [ -z "$JAR_PATH" ]; then
+            echo "No JAR file found! Listing all jars:"
+            find . -name "*.jar" -type f
+            exit 1
+          fi
+          
+          echo "Found JAR: $JAR_PATH"
+          echo "Size: $(ls -lh "$JAR_PATH" | awk '{print $5}')"
+          cp "$JAR_PATH" ./server.jar
+          echo "JAR_SIZE=$(ls -lh ./server.jar | awk '{print $5}')" >> $GITHUB_OUTPUT
 
-    - name: List build outputs (for debugging)
-      run: |
-        echo "=== Build output structure ==="
-        find . -name "*.jar" -type f | grep -v ".gradle" | while read jar; do
-          echo "$jar - $(ls -lh "$jar" | awk '{print $5}')"
-        done
-        echo "============================="
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: server-jar
+          path: server.jar
+          retention-days: 30
 
-    - name: Upload Artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: paper-server-jar
-        path: server.jar  # 上传 server.jar
-        retention-days: 30
+  # 如果普通构建失败，回退到 mojmap 构建
+  build-fallback:
+    needs: build
+    if: failure()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 
+
+      - name: Set up JDK 22
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '22'
+
+      - name: Build with Gradle (回退方案)
+        run: |
+          chmod +x gradlew 
+          ./gradlew clean 
+          ./gradlew applyPatches
+          ./gradlew createMojmapPaperclipJar
+
+      - name: Prepare server.jar from fallback
+        id: prepare_fallback_jar
+        run: |
+          JAR_PATH=$(find . -name "paperclip-mojmap-*.jar" | head -n 1)
+          if [ -z "$JAR_PATH" ]; then
+            JAR_PATH=$(find paper-server/build/libs -name "*.jar" ! -name "*sources*" ! -name "*javadoc*" | head -n 1)
+          fi
+          cp "$JAR_PATH" ./server.jar
+          echo "JAR_SIZE=$(ls -lh ./server.jar | awk '{print $5}')" >> $GITHUB_OUTPUT
+
+      - name: Upload Fallback Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: server-jar-fallback
+          path: server.jar
+          retention-days: 30
 
   release:
-    needs: build
+    needs: [build, build-fallback]
     runs-on: ubuntu-latest
     permissions:
-      contents: write
-    if: startsWith(github.ref, 'refs/tags/')
+      contents: write 
     steps:
-    - name: Download Artifact
-      uses: actions/download-artifact@v4
-      with:
-        name: paper-server-jar
-        # 下载后文件会自动命名为 server.jar
+      - name: Download Artifact (优先使用主构建)
+        uses: actions/download-artifact@v4
+        with:
+          name: server-jar
+          # 如果主构建不存在，会继续尝试下载回退版本
 
-    - name: Rename to server.jar (确保文件名)
-      run: |
-        # 确保文件名为 server.jar
-        if [ -f "paper-server-jar/server.jar" ]; then
-          cp paper-server-jar/server.jar ./
-        elif [ -f "paper-server-jar/paper.jar" ]; then
-          cp paper-server-jar/paper.jar ./server.jar
-        else
-          # 查找任何 jar 文件并重命名
-          find . -name "*.jar" -exec cp {} ./server.jar \;
-        fi
-        
-        echo "Final file: server.jar ($(ls -lh server.jar | awk '{print $5}'))"
+      - name: Download Fallback Artifact (如果需要)
+        if: failure()
+        uses: actions/download-artifact@v4
+        with:
+          name: server-jar-fallback
 
-    - name: Create Release with server.jar
-      uses: softprops/action-gh-release@v1
-      with:
-        files: server.jar  # 直接上传 server.jar
-        tag_name: ${{ github.ref_name }}
-        name: "Paper Server ${{ github.ref_name }}"
-        body: |
-          ## Paper Server Build ${{ github.ref_name }}
-          
-          This release contains the Paper server JAR file built with Mojmap mapping.
-          
-          ### File Info
-          - File Name: server.jar
-          - Size: ${{ needs.build.outputs.JAR_SIZE }}
-          - Type: Mojmap Paperclip
-          - Build Date: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
-          
-          ### Installation
-          1. Download the `server.jar` file
-          2. Place it in your server directory
-          3. Run with: `java -Xmx2G -Xms2G -jar server.jar nogui`
-          
-          ### Requirements
-          - Java 21 or higher
-          
-          ### Build Details
-          - Commit: ${{ github.sha }}
-          - Build Type: Mojmap Paperclip
-        draft: false
-        prerelease: false
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Ensure server.jar exists
+        run: |
+          if [ ! -f "server.jar" ]; then
+            # 尝试查找任何 jar 文件
+            FOUND_JAR=$(find . -name "*.jar" | head -n 1)
+            if [ -n "$FOUND_JAR" ]; then
+              cp "$FOUND_JAR" ./server.jar
+            else
+              echo "No server.jar found!"
+              exit 1
+            fi
+          fi
+          echo "Final server.jar size: $(ls -lh server.jar | awk '{print $5}')"
+
+      - name: Create Release with server.jar
+        uses: softprops/action-gh-release@v1
+        with:
+          files: server.jar
+          tag_name: "build-${{ github.run_number }}"
+          name: "Server ${{ github.run_number }}"
+          body: |
+            ## Server Build #${{ github.run_number }}
+            
+            **Build Info:**
+            - Commit: ${{ github.sha }}
+            - Branch: ${{ github.ref }}
+            - File Size: $(ls -lh server.jar | awk '{print $5}')
+            
+            **Installation:**
+            1. Download `server.jar`
+            2. Place in server directory
+            3. Run: `java -Xmx2G -jar server.jar nogui`
+            
+            **Requirements:**
+            - Java 21 or higher
+          draft: false
+          prerelease: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
