@@ -1,19 +1,23 @@
-# 简化版本
-name: Build and Release server.jar
+name: Build server.jar
 
 on:
   push:
-    tags: ['v*']  # 只在打标签时运行
+    branches: [ main ]
   workflow_dispatch:
 
 jobs:
-  build-and-release:
+  build:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Configure Git for GitHub Actions
+      run: |
+        git config --global user.email "action@github.com"
+        git config --global user.name "GitHub Action"
 
     - name: Set up JDK 22
       uses: actions/setup-java@v4
@@ -21,27 +25,126 @@ jobs:
         distribution: 'temurin'
         java-version: '22'
 
-    - name: Build Paper server
+    - name: Cache Gradle dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.gradle/caches
+          ~/.gradle/wrapper
+        key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+        restore-keys: |
+          ${{ runner.os }}-gradle-
+
+    - name: Build with Gradle (Mojmap paperclip)
       run: |
         chmod +x gradlew
         ./gradlew clean
         ./gradlew applyPatches
         ./gradlew createMojmapPaperclipJar
 
-    - name: Find and rename JAR
+    - name: Prepare JAR
+      id: prepare_jar
       run: |
-        # 查找并重命名为 server.jar
-        JAR_FILE=$(find . -name "paperclip-mojmap-*.jar" | head -n 1)
-        [ -z "$JAR_FILE" ] && JAR_FILE=$(find . -name "paper-*.jar" ! -name "*sources*" ! -name "*javadoc*" | head -n 1)
-        cp "$JAR_FILE" server.jar
-        echo "File size: $(ls -lh server.jar | awk '{print $5}')"
+        # 查找 paperclip JAR 文件
+        JAR_PATH=$(find . -name "paperclip-mojmap-*.jar" | head -n 1)
+        
+        if [ -z "$JAR_PATH" ]; then
+          echo "Trying alternative paperclip paths..."
+          JAR_PATH=$(find . -path "*/build/libs/*" -name "paperclip*.jar" | head -n 1)
+        fi
+        
+        if [ -z "$JAR_PATH" ]; then
+          echo "Trying server JAR paths..."
+          JAR_PATH=$(find . -path "*/build/libs/*" -name "paper-*.jar" ! -name "*sources*" ! -name "*javadoc*" | head -n 1)
+        fi
+        
+        if [ -z "$JAR_PATH" ]; then
+          echo "No JAR file found! Listing build directories..."
+          find . -name "build" -type d | while read dir; do
+            echo "Checking $dir/libs/"
+            ls -la "$dir/libs/" 2>/dev/null || true
+          done
+          exit 1
+        fi
+        
+        echo "Found JAR at: $JAR_PATH"
+        echo "JAR size: $(ls -lh "$JAR_PATH" | awk '{print $5}')"
+        cp "$JAR_PATH" ./server.jar  # 直接命名为 server.jar
+        echo "JAR_SIZE=$(ls -lh ./server.jar | awk '{print $5}')" >> $GITHUB_OUTPUT
+        echo "JAR_NAME=server.jar" >> $GITHUB_OUTPUT
+        echo "JAR_PATH=$JAR_PATH" >> $GITHUB_OUTPUT
 
-    - name: Create Release
+    - name: List build outputs (for debugging)
+      run: |
+        echo "=== Build output structure ==="
+        find . -name "*.jar" -type f | grep -v ".gradle" | while read jar; do
+          echo "$jar - $(ls -lh "$jar" | awk '{print $5}')"
+        done
+        echo "============================="
+
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: paper-server-jar
+        path: server.jar  # 上传 server.jar
+        retention-days: 30
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+    - name: Download Artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: paper-server-jar
+        # 下载后文件会自动命名为 server.jar
+
+    - name: Rename to server.jar (确保文件名)
+      run: |
+        # 确保文件名为 server.jar
+        if [ -f "paper-server-jar/server.jar" ]; then
+          cp paper-server-jar/server.jar ./
+        elif [ -f "paper-server-jar/paper.jar" ]; then
+          cp paper-server-jar/paper.jar ./server.jar
+        else
+          # 查找任何 jar 文件并重命名
+          find . -name "*.jar" -exec cp {} ./server.jar \;
+        fi
+        
+        echo "Final file: server.jar ($(ls -lh server.jar | awk '{print $5}'))"
+
+    - name: Create Release with server.jar
       uses: softprops/action-gh-release@v1
       with:
-        files: server.jar
+        files: server.jar  # 直接上传 server.jar
         tag_name: ${{ github.ref_name }}
-        name: "Server ${{ github.ref_name }}"
-        body: "Server JAR build from ${{ github.sha }}"
+        name: "Paper Server ${{ github.ref_name }}"
+        body: |
+          ## Paper Server Build ${{ github.ref_name }}
+          
+          This release contains the Paper server JAR file built with Mojmap mapping.
+          
+          ### File Info
+          - File Name: server.jar
+          - Size: ${{ needs.build.outputs.JAR_SIZE }}
+          - Type: Mojmap Paperclip
+          - Build Date: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          
+          ### Installation
+          1. Download the `server.jar` file
+          2. Place it in your server directory
+          3. Run with: `java -Xmx2G -Xms2G -jar server.jar nogui`
+          
+          ### Requirements
+          - Java 21 or higher
+          
+          ### Build Details
+          - Commit: ${{ github.sha }}
+          - Build Type: Mojmap Paperclip
+        draft: false
+        prerelease: false
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
