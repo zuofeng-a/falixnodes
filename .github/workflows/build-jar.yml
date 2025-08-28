@@ -2,7 +2,7 @@ name: Build server.jar
 
 on:
   push:
-    branches: [ main ] 
+    branches: [ main ]
   workflow_dispatch:
 
 jobs:
@@ -12,7 +12,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 
+          fetch-depth: 0
 
       - name: Configure Git
         run: |
@@ -37,15 +37,15 @@ jobs:
 
       - name: Configure Git
         run: |
-          git config --global user.email "admin@eoooce.com"
+          git config --global user.email "admin@eooce.com"
           git config --global user.name "eooce"
 
       - name: Build with Gradle
         run: |
-          chmod +x gradlew 
-          ./gradlew clean 
+          chmod +x gradlew
+          ./gradlew clean
           ./gradlew applyPatches
-          ./gradlew paperclipJar
+          ./gradlew createReobfPaperclipJar
 
       - name: Prepare JAR
         id: prepare_jar
@@ -70,7 +70,7 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     permissions:
-      contents: write 
+      contents: write
     steps:
       - name: Download Artifact
         uses: actions/download-artifact@v4
@@ -85,14 +85,14 @@ jobs:
           name: "Paper ${{ github.ref_name }}"
           body: |
             ## Paper Server Build ${{ github.ref_name }}
-            
+
             This release contains the Paper server JAR file built from the latest source code.
-            
+
             ### Installation
             1. Download the `paper.jar` file
             2. Place it in your server directory
             3. Run with: `java -Xmx2G -Xms2G -jar paper.jar nogui`
-            
+
             ### Requirements
             - Java 21 or higher
           draft: false
