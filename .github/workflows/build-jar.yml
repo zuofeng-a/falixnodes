@@ -9,93 +9,108 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
 
-      - name: Configure Git
-        run: |
-          git config --global user.email "action@github.com"
-          git config --global user.name "GitHub Action"
+    - name: Configure Git for GitHub Actions
+      run: |
+        git config --global user.email "action@github.com"
+        git config --global user.name "GitHub Action"
 
-      - name: Set up JDK 22
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: '22'
+    - name: Set up JDK 22
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'temurin'
+        java-version: '22'
 
-      - name: Cache Gradle dependencies
-        uses: actions/cache@v3
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
-          restore-keys: |
-            ${{ runner.os }}-gradle-
+    - name: Cache Gradle dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.gradle/caches
+          ~/.gradle/wrapper
+        key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+        restore-keys: |
+          ${{ runner.os }}-gradle-
 
-      - name: Configure Git
-        run: |
-          git config --global user.email "admin@eooce.com"
-          git config --global user.name "eooce"
+    - name: Build with Gradle (reobfJar for smaller size)
+      run: |
+        chmod +x gradlew
+        ./gradlew clean
+        ./gradlew applyPatches
+        ./gradlew reobfJar  # 使用 reobfJar 而不是 createMojmapPaperclipJar
 
-      - name: Build with Gradle
-        run: |
-          chmod +x gradlew
-          ./gradlew clean
-          ./gradlew applyPatches
-          ./gradlew createReobfPaperclipJar
+    - name: Prepare JAR
+      id: prepare_jar
+      run: |
+        # 查找重新混淆后的 JAR 文件（通常在 paper-server/build/libs 中）
+        JAR_PATH=$(find . -path "*/build/libs/*" -name "paper-*.jar" ! -name "*sources*" ! -name "*javadoc*" ! -name "*mojmap*" | head -n 1)
+        
+        if [ -z "$JAR_PATH" ]; then
+          echo "No JAR file found! Trying alternative paths..."
+          # 尝试其他可能的路径
+          JAR_PATH=$(find . -name "paper-*.jar" ! -name "*sources*" ! -name "*javadoc*" ! -name "*mojmap*" | head -n 1)
+        fi
+        
+        if [ -z "$JAR_PATH" ]; then
+          echo "No JAR file found!"
+          exit 1
+        fi
+        
+        echo "Found JAR at: $JAR_PATH"
+        cp "$JAR_PATH" ./paper.jar
+        echo "JAR_SIZE=$(ls -lh ./paper.jar | awk '{print $5}')" >> $GITHUB_OUTPUT
+        echo "JAR_NAME=$(basename "$JAR_PATH")" >> $GITHUB_OUTPUT
 
-      - name: Prepare JAR
-        id: prepare_jar
-        run: |
-          JAR_PATH=$(find build/libs -name "paperclip-*.jar" | head -n 1)
-          if [ -z "$JAR_PATH" ]; then
-            echo "No JAR file found!"
-            exit 1
-          fi
-          cp "$JAR_PATH" ./paper.jar
-          echo "JAR_SIZE=$(ls -lh ./paper.jar | awk '{print $5}')" >> $GITHUB_OUTPUT
-          echo "JAR_NAME=$(basename "$JAR_PATH")" >> $GITHUB_OUTPUT
-
-      - name: Upload Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: paper-artifact
-          path: paper.jar
-          retention-days: 30
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: paper-server-jar
+        path: paper.jar
+        retention-days: 30
 
   release:
     needs: build
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    # 只在打标签时创建发布，避免每次提交都创建发布
+    if: startsWith(github.ref, 'refs/tags/')
     steps:
-      - name: Download Artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: paper-artifact
+    - name: Download Artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: paper-server-jar
 
-      - name: Create Release
-        uses: softprops/action-gh-release@v1
-        with:
-          files: paper.jar
-          tag_name: ${{ github.ref_name }}
-          name: "Paper ${{ github.ref_name }}"
-          body: |
-            ## Paper Server Build ${{ github.ref_name }}
-
-            This release contains the Paper server JAR file built from the latest source code.
-
-            ### Installation
-            1. Download the `paper.jar` file
-            2. Place it in your server directory
-            3. Run with: `java -Xmx2G -Xms2G -jar paper.jar nogui`
-
-            ### Requirements
-            - Java 21 or higher
-          draft: false
-          prerelease: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: paper.jar
+        tag_name: ${{ github.ref_name }}
+        name: "Paper Server ${{ github.ref_name }}"
+        body: |
+          ## Paper Server Build ${{ github.ref_name }}
+          
+          This release contains the optimized Paper server JAR file.
+          
+          ### File Info
+          - Size: ${{ needs.build.outputs.JAR_SIZE }}
+          - Build Date: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          
+          ### Installation
+          1. Download the paper.jar file
+          2. Place it in your server directory
+          3. Run with: `java -Xmx2G -Xms2G -jar paper.jar nogui`
+          
+          ### Requirements
+          - Java 21 or higher
+          
+          ### Build Details
+          - Commit: ${{ github.sha }}
+          - Build Type: Reobfuscated (optimized for size)
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
