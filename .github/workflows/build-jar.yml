@@ -1,4 +1,4 @@
-name: Build and Release Paper
+name: Build paper
 
 on:
   push:
@@ -6,13 +6,18 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-and-release:
+  build:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 
+
+      - name: Configure Git
+        run: |
+          git config --global user.email "action@github.com"
+          git config --global user.name "GitHub Action"
 
       - name: Set up JDK 22
         uses: actions/setup-java@v4
@@ -20,42 +25,98 @@ jobs:
           distribution: 'temurin'
           java-version: '22'
 
-      - name: Build Paper server
+      - name: Cache Gradle dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      - name: Build with Gradle
         run: |
-          chmod +x gradlew
-          ./gradlew clean
+          chmod +x gradlew 
+          ./gradlew clean 
           ./gradlew applyPatches
           ./gradlew createMojmapPaperclipJar
 
-      - name: Find and rename JAR
+      - name: Prepare JAR
+        id: prepare_jar
         run: |
-          # 查找并重命名为 server.jar
-          JAR_FILE=$(find . -name "paperclip-mojmap-*.jar" | head -n 1)
-          [ -z "$JAR_FILE" ] && JAR_FILE=$(find . -name "paper-*.jar" ! -name "*sources*" ! -name "*javadoc*" | head -n 1)
-          cp "$JAR_FILE" server.jar
-          echo "文件大小: $(ls -lh server.jar | awk '{print $5}')"
+          # 查找 paperclip JAR 文件
+          JAR_PATH=$(find . -name "paperclip-mojmap-*.jar" | head -n 1)
+          if [ -z "$JAR_PATH" ]; then
+            echo "Paperclip JAR 未找到，尝试其他路径..."
+            JAR_PATH=$(find paper-server/build/libs -name "*.jar" ! -name "*sources*" ! -name "*javadoc*" | head -n 1)
+          fi
+          if [ -z "$JAR_PATH" ]; then
+            echo "No JAR file found!"
+            find . -name "*.jar" -exec ls -lh {} \;
+            exit 1
+          fi
+          cp "$JAR_PATH" ./server.jar
+          echo "JAR_SIZE=$(ls -lh ./server.jar | awk '{print $5}')" >> $GITHUB_OUTPUT
+          echo "JAR_NAME=server.jar" >> $GITHUB_OUTPUT
 
-      - name: Create or Overwrite Release
-        uses: actions/create-release@v1
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
         with:
-          tag_name: "latest"
-          release_name: "Paper Server - Latest"
+          name: server-jar
+          path: server.jar
+          retention-days: 30
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write 
+      packages: write
+    steps:
+      - name: Download Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: server-jar
+
+      - name: Delete existing release (if any)
+        run: |
+          # 删除已存在的 release
+          gh release delete "main" --yes --cleanup-tag || echo "Release 'main' does not exist or already deleted"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create or Update Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: server.jar
+          tag_name: "main"  # 固定标签名
+          name: "Paper Server - Latest Build"
           body: |
-            最后更新: $(date)
-            提交: ${{ github.sha }}
-            文件大小: $(ls -lh server.jar | awk '{print $5}')
+            ## Paper Server - Latest Build
+            
+            **构建信息:**
+            - 最后更新: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+            - 提交: ${{ github.sha }}
+            - 文件大小: ${{ needs.build.outputs.JAR_SIZE }}
+            
+            **安装说明:**
+            1. 下载 `server.jar` 文件
+            2. 放入服务器目录
+            3. 运行
+            
+            **系统要求:**
+            - Java 17 或更高版本
+            
+            **注意:** 此版本会自动更新，每次推送都会覆盖
           draft: false
           prerelease: false
-          overwrite: true
+          overwrite: true  # 覆盖已存在的 release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Upload Release Asset
-        uses: actions/upload-release-asset@v1
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./server.jar
-          asset_name: server.jar
-          asset_content_type: application/java-archive
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Verify Release
+        run: |
+          echo "Release 创建成功！"
+          echo "标签: main"
+          echo "文件: server.jar ($(ls -lh server.jar | awk '{print $5}'))"
