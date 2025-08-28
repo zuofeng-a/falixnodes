@@ -2,7 +2,7 @@ name: Build server.jar
 
 on:
   push:
-    tags: ['*']  
+    branches: [ main ] 
   workflow_dispatch:
 
 jobs:
