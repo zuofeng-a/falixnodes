@@ -119,10 +119,13 @@ jobs:
             exit 1
           fi
 
-      - name: Delete existing latest release
+      - name: Delete existing latest release and tag
         run: |
           # 删除已存在的 latest release
-          gh release delete "latest" --yes --cleanup-tag || echo "Release 'latest' does not exist or already deleted"
+          gh release delete "latest" --yes --cleanup-tag || echo "Release 'latest' does not exist"
+          # 删除已存在的 latest tag
+          git tag -d latest || echo "Tag 'latest' does not exist locally"
+          git push --delete origin latest || echo "Tag 'latest' does not exist remotely"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -130,11 +133,9 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           files: server.jar
-          tag_name: "latest" 
+          tag_name: "latest"  
           name: "Paper Server - Latest"
           body: |
-            ## Paper server.jar
-            
             **安装说明:**
             1. 下载 `server.jar` 文件
             2. 放入服务器files目录覆盖原文件
@@ -146,7 +147,6 @@ jobs:
             **注意:** 此版本会自动更新，每次推送都会覆盖
           draft: false
           prerelease: false
-          overwrite: true  # 允许覆盖已存在的 release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
