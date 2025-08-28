@@ -2,7 +2,7 @@ name: Build paper
 
 on:
   push:
-    tags: ['*']  
+    branches: [ main ] 
   workflow_dispatch:
 
 jobs:
