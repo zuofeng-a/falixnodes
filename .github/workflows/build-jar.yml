@@ -45,12 +45,12 @@ jobs:
           chmod +x gradlew 
           ./gradlew clean 
           ./gradlew applyPatches
-          ./gradlew createMojmapPaperclipJar
+          ./gradlew paperclipJar
 
       - name: Prepare JAR
         id: prepare_jar
         run: |
-          JAR_PATH=$(find paper-server/build/libs -name "*.jar" ! -name "*sources*" ! -name "*javadoc*" | head -n 1)
+          JAR_PATH=$(find build/libs -name "paperclip-*.jar" | head -n 1)
           if [ -z "$JAR_PATH" ]; then
             echo "No JAR file found!"
             exit 1
