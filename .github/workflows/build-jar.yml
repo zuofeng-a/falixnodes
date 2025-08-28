@@ -1,4 +1,4 @@
-name: Build paper
+name: Build and Release Paper
 
 on:
   push:
@@ -6,18 +6,13 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
+  build-and-release:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0 
-
-      - name: Configure Git
-        run: |
-          git config --global user.email "action@github.com"
-          git config --global user.name "GitHub Action"
 
       - name: Set up JDK 22
         uses: actions/setup-java@v4
@@ -25,125 +20,42 @@ jobs:
           distribution: 'temurin'
           java-version: '22'
 
-      - name: Cache Gradle dependencies
-        uses: actions/cache@v3
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
-          restore-keys: |
-            ${{ runner.os }}-gradle-
-
-      - name: Build with Gradle
+      - name: Build Paper server
         run: |
-          chmod +x gradlew 
-          ./gradlew clean 
+          chmod +x gradlew
+          ./gradlew clean
           ./gradlew applyPatches
-          # 先尝试构建普通服务器，如果失败则使用 mojmap
-          ./gradlew :paper-server:build || ./gradlew createMojmapPaperclipJar
+          ./gradlew createMojmapPaperclipJar
 
-      - name: Find and prepare correct JAR
-        id: prepare_jar
+      - name: Find and rename JAR
         run: |
-          echo "=== 查找正确的 JAR 文件 ==="
-          
-          # 1. 首先查找完整的服务器 JAR（应该在 50-60MB 左右）
-          JAR_PATH=$(find . -path "*/build/libs/*" -name "paper-*.jar" ! -name "*sources*" ! -name "*javadoc*" -size +40M | head -n 1)
-          
-          # 2. 如果没找到，查找 paperclip JAR（90MB 左右）
-          if [ -z "$JAR_PATH" ]; then
-            echo "普通服务器 JAR 未找到，尝试查找 paperclip..."
-            JAR_PATH=$(find . -name "paperclip-mojmap-*.jar" -size +80M | head -n 1)
-          fi
-          
-          # 3. 如果还是没找到，查找任何较大的 JAR 文件
-          if [ -z "$JAR_PATH" ]; then
-            echo "查找任何较大的 JAR 文件..."
-            JAR_PATH=$(find . -name "*.jar" -size +40M | head -n 1)
-          fi
-          
-          # 4. 最后尝试任何 JAR 文件
-          if [ -z "$JAR_PATH" ]; then
-            echo "查找任何 JAR 文件..."
-            JAR_PATH=$(find . -name "*.jar" | head -n 1)
-          fi
-          
-          if [ -z "$JAR_PATH" ]; then
-            echo "No JAR file found! Listing all files:"
-            find . -name "*.jar" -exec ls -lh {} \;
-            exit 1
-          fi
-          
-          echo "找到 JAR: $JAR_PATH"
-          echo "大小: $(ls -lh "$JAR_PATH" | awk '{print $5}')"
-          cp "$JAR_PATH" ./server.jar
-          echo "最终文件大小: $(ls -lh ./server.jar | awk '{print $5}')"
-          echo "JAR_SIZE=$(ls -lh ./server.jar | awk '{print $5}')" >> $GITHUB_OUTPUT
+          # 查找并重命名为 server.jar
+          JAR_FILE=$(find . -name "paperclip-mojmap-*.jar" | head -n 1)
+          [ -z "$JAR_FILE" ] && JAR_FILE=$(find . -name "paper-*.jar" ! -name "*sources*" ! -name "*javadoc*" | head -n 1)
+          cp "$JAR_FILE" server.jar
+          echo "文件大小: $(ls -lh server.jar | awk '{print $5}')"
 
-      - name: Debug - List all JAR files
-        run: |
-          echo "=== 所有 JAR 文件列表 ==="
-          find . -name "*.jar" -exec ls -lh {} \; | sort -k 5 -h
-          echo "========================="
-
-      - name: Upload Artifact
-        uses: actions/upload-artifact@v4
+      - name: Create or Overwrite Release
+        uses: actions/create-release@v1
         with:
-          name: server-jar
-          path: server.jar
-          retention-days: 30
-
-  release:
-    needs: build
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write 
-    steps:
-      - name: Download Artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: server-jar
-
-      - name: Verify JAR file
-        run: |
-          echo "下载的文件信息:"
-          ls -lh
-          echo "server.jar 大小: $(ls -lh server.jar | awk '{print $5}')"
-          
-          # 检查文件大小是否合理
-          JAR_SIZE=$(stat -f%z server.jar 2>/dev/null || stat -c%s server.jar)
-          if [ "$JAR_SIZE" -lt 40000000 ]; then  # 小于 40MB
-            echo "警告: JAR 文件可能太小 ($JAR_SIZE bytes)，可能不是完整的服务器 JAR"
-            echo "尝试重新构建..."
-            exit 1
-          fi
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v1
-        with:
-          files: server.jar
-          tag_name: "release-${{ github.run_number }}"
-          name: "Server Build ${{ github.run_number }}"
+          tag_name: "latest"
+          release_name: "Paper Server - Latest"
           body: |
-            ## Server Build #${{ github.run_number }}
-            
-            **构建信息:**
-            - 提交: ${{ github.sha }}
-            - 分支: ${{ github.ref_name }}
-            - 构建时间: ${{ github.run_attempt }}
-            - 文件大小: $(ls -lh server.jar | awk '{print $5}')
-            
-            **安装说明:**
-            1. 下载 `server.jar` 文件
-            2. 放入服务器目录
-            3. 运行: `java -Xmx2G -jar server.jar nogui`
-            
-            **系统要求:**
-            - Java 21 或更高版本
-            
-            **注意:** 这是自动构建版本
+            最后更新: $(date)
+            提交: ${{ github.sha }}
+            文件大小: $(ls -lh server.jar | awk '{print $5}')
           draft: false
-          prerelease: true
+          prerelease: false
+          overwrite: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Release Asset
+        uses: actions/upload-release-asset@v1
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./server.jar
+          asset_name: server.jar
+          asset_content_type: application/java-archive
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
