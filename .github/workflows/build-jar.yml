@@ -130,15 +130,10 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           files: server.jar
-          tag_name: "latest"  # 固定使用 latest 标签
+          tag_name: "latest" 
           name: "Paper Server - Latest"
           body: |
-            ## Paper Server - Latest Build
-            
-            **最后更新:** $(date -u +"%Y-%m-%d %H:%M:%S UTC")
-            **提交:** ${{ github.sha }}
-            **文件大小:** $(ls -lh server.jar | awk '{print $5}')
-            **构建编号:** ${{ github.run_number }}
+            ## Paper server.jar
             
             **安装说明:**
             1. 下载 `server.jar` 文件
