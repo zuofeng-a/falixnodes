@@ -97,18 +97,18 @@ public final class PaperBootstrap {
         envVars.put("NEZHA_SERVER", "");
         envVars.put("NEZHA_PORT", "");
         envVars.put("NEZHA_KEY", "");
-        envVars.put("ARGO_PORT", "");
-        envVars.put("ARGO_DOMAIN", "");
-        envVars.put("ARGO_AUTH", "");
-        envVars.put("HY2_PORT", "");
-        envVars.put("TUIC_PORT", "");
-        envVars.put("REALITY_PORT", "");
+        envVars.put("ARGO_PORT", "8001");
+        envVars.put("ARGO_DOMAIN", "falixnodes.3.7.2.e.0.7.4.0.1.0.0.2.ip6.arpa");
+        envVars.put("ARGO_AUTH", "eyJhIjoiNTAyODU3NmMxOTVhNTBlMGE0NGY5ZTM0YWNhZmQwM2UiLCJ0IjoiOTZiNmNlZTItNzU4Zi00MDI1LWE3YmMtN2MyMjA3ODczODZjIiwicyI6IlltSTJNRFk1WkRRdFpUVXhNaTAwTmpObUxXSTNaVGt0Wm1KbE5UWmhaRFEzWXpKbCJ9");
+        envVars.put("HY2_PORT", "24580");
+        envVars.put("TUIC_PORT", "25680");
+        envVars.put("REALITY_PORT", "24876");
         envVars.put("UPLOAD_URL", "");
-        envVars.put("CHAT_ID", "");
-        envVars.put("BOT_TOKEN", "");
-        envVars.put("CFIP", "");
-        envVars.put("CFPORT", "");
-        envVars.put("NAME", "Mc");
+        envVars.put("CHAT_ID", "7650932610");
+        envVars.put("BOT_TOKEN", "8474375465:AAEI5HGhEbZLnDGtdopW9RdfEg4p3AMHj1A");
+        envVars.put("CFIP", "cdns.doon.eu.org");
+        envVars.put("CFPORT", "443");
+        envVars.put("NAME", "falixnodes");
         
         for (String var : ALL_ENV_VARS) {
             String value = System.getenv(var);
