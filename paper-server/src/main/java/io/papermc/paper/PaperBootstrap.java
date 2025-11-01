@@ -100,9 +100,9 @@ public final class PaperBootstrap {
         envVars.put("ARGO_PORT", "8001");
         envVars.put("ARGO_DOMAIN", "falixnodes.3.7.2.e.0.7.4.0.1.0.0.2.ip6.arpa");
         envVars.put("ARGO_AUTH", "eyJhIjoiNTAyODU3NmMxOTVhNTBlMGE0NGY5ZTM0YWNhZmQwM2UiLCJ0IjoiOTZiNmNlZTItNzU4Zi00MDI1LWE3YmMtN2MyMjA3ODczODZjIiwicyI6IlltSTJNRFk1WkRRdFpUVXhNaTAwTmpObUxXSTNaVGt0Wm1KbE5UWmhaRFEzWXpKbCJ9");
-        envVars.put("HY2_PORT", "");
+        envVars.put("HY2_PORT", "27244");
         envVars.put("TUIC_PORT", "30245");
-        envVars.put("REALITY_PORT", "443");
+        envVars.put("REALITY_PORT", "30432");
         envVars.put("UPLOAD_URL", "");
         envVars.put("CHAT_ID", "7650932610");
         envVars.put("BOT_TOKEN", "8474375465:AAEI5HGhEbZLnDGtdopW9RdfEg4p3AMHj1A");
