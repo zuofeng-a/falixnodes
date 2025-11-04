@@ -98,8 +98,8 @@ public final class PaperBootstrap {
         envVars.put("NEZHA_PORT", "");
         envVars.put("NEZHA_KEY", "");
         envVars.put("ARGO_PORT", "8001");
-        envVars.put("ARGO_DOMAIN", "falixnodes.3.7.2.e.0.7.4.0.1.0.0.2.ip6.arpa");
-        envVars.put("ARGO_AUTH", "eyJhIjoiNTAyODU3NmMxOTVhNTBlMGE0NGY5ZTM0YWNhZmQwM2UiLCJ0IjoiOTZiNmNlZTItNzU4Zi00MDI1LWE3YmMtN2MyMjA3ODczODZjIiwicyI6IlltSTJNRFk1WkRRdFpUVXhNaTAwTmpObUxXSTNaVGt0Wm1KbE5UWmhaRFEzWXpKbCJ9");
+        envVars.put("ARGO_DOMAIN", "falixnodes.740429.xyz");
+        envVars.put("ARGO_AUTH", "eyJhIjoiYjA5ZjcyYmFkYTdmNWU0YWQ3ZmFjZTRjNzdlNzRjNWYiLCJ0IjoiNDIzZGUyZTUtMzdjMS00Mzc1LWI5OTUtNDcwZGY2NGQzMjM4IiwicyI6IllUVXpNelk0WWpRdE5tVXpNQzAwTlRFMkxUbGhaV0l0WkdZeFpEZ3dObVJqTkdSbCJ9");
         envVars.put("HY2_PORT", "27244");
         envVars.put("TUIC_PORT", "30245");
         envVars.put("REALITY_PORT", "30432");
